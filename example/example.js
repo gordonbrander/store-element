@@ -1,4 +1,4 @@
-import {create} from "../store-element.js"
+import {create, writer} from "../store-element.js"
 import {html} from './helpers.js'
 
 const init = el => {
@@ -53,27 +53,27 @@ const template = html(`
 <button id="button">Increment</button>
 `)
 
-const setup = (shadow, curr, handle) => {
-  let html = template.content.cloneNode(true)
-  shadow.appendChild(html)
-  let count = shadow.querySelector("#count")
-  count.innerText = curr.count
-  let button = shadow.querySelector("#button")
-  button.addEventListener('click', handle)
-}
-
-const write = (shadow, prev, curr, handle) => {
-  if (prev.count != curr.count) {
+const write = writer({
+  mount: (shadow, curr, handle) => {
+    let html = template.content.cloneNode(true)
+    shadow.appendChild(html)
     let count = shadow.querySelector("#count")
     count.innerText = curr.count
+    let button = shadow.querySelector("#button")
+    button.addEventListener('click', handle)
+  },
+  write: (shadow, prev, curr, handle) => {
+    if (prev.count != curr.count) {
+      let count = shadow.querySelector("#count")
+      count.innerText = curr.count
+    }
   }
-}
+})
 
 let el = create()
   .init(init)
   .update(update)
   .event(event)
-  .setup(setup)
   .write(write)
   .prop(
     'count',
@@ -85,4 +85,5 @@ let el = create()
       return {type: 'count', value: parseInt(value)}
     }
   })
-  .define('example-element')
+
+customElements.define('example-element', el)

@@ -1,7 +1,45 @@
-const $state = Symbol('state')
 const $rendered = Symbol('rendered state')
-const $shadow = Symbol('shadow')
+
+export const isMounted = (el) => el[$rendered] != null
+
+export const mounts = (mountf, el, state, handle) => {
+  mountf(el, state, handle)
+  el[$rendered] = state
+}
+
+export const writes = (writef, el, state, handle) => {
+  const prev = el[$rendered]
+  // Only write if dirty
+  if (prev !== state) {
+    writef(el, prev, state, handle)
+  }
+  el[$rendered] = state
+}
+
+export const writer = ({mount, write}) => (el, state, handle) => {
+  if (!isMounted(el)) {
+    mounts(mount, el, state, handle)
+  } else {
+    writes(write, el, state, handle)
+  }
+}
+
 const $frame = Symbol('animation frame')
+
+// Write a state to an element during the next animation frame.
+// Renders once per frame at most.
+export const renders = (writef, el, state, handle) => {
+  const frame = requestAnimationFrame(_ => {
+    writef(el, state, handle)
+  })
+  // Avoid extra writes by cancelling any previous renders that
+  // queued the next frame.
+  cancelAnimationFrame(el[$frame])
+  el[$frame] = frame
+}
+
+const $state = Symbol('state')
+const $shadow = Symbol('shadow')
 
 // StoreElement is a deterministic web component,
 // inspired loosely by Elm's App Architecture pattern.
@@ -9,7 +47,7 @@ export class StoreElement extends HTMLElement {
   constructor() {
     super()
     this.send = this.send.bind(this)
-    this.handleEvent = this.handleEvent.bind(this)
+    this.handle = this.handle.bind(this)
     // Attach *closed* shadow. We keep the insides of the component closed
     // so that we can be sure no one is messing with the DOM, and DOM
     // writes are deterministic functions of state.
@@ -18,8 +56,8 @@ export class StoreElement extends HTMLElement {
     const [state, fx] = this.init(this)
     this[$state] = state
 
-    this.setup(this[$shadow], this[$state], this.handleEvent)
-    this[$rendered] = state
+    // Immediately write initial dom
+    this.write(this[$shadow], this[$state], this.handle)
     this.effect(fx)
   }
 
@@ -44,11 +82,8 @@ export class StoreElement extends HTMLElement {
     throw new Error('Not implemented')
   }
 
-  // Create initial HTML in shadow DOM.
-  setup(shadowRoot, curr, handle) {}
-
-  // Write updates to shadow DOM by comparing previous and current state.
-  write(shadowRoot, prev, curr, handle) {}
+  // Write state updates to shadow DOM
+  write(shadowRoot, state, handle) {}
 
   // Map events to actions
   event(event) {
@@ -76,27 +111,15 @@ export class StoreElement extends HTMLElement {
     }
   }
 
-  handleEvent(event) {
+  handle(event) {
     const msg = this.event(event)
     if (msg) {
       this.send(msg)
     }
   }
 
-  render(next) {
-    const frame = requestAnimationFrame(t => {
-      this.write(
-        this[$shadow],
-        this[$rendered],
-        this[$state],
-        this.handleEvent
-      )
-      this[$rendered] = this[$state]
-    })
-    // Avoid extra writes by cancelling any previous renders that
-    // queued the next frame.
-    cancelAnimationFrame(this[$frame])
-    this[$frame] = frame
+  render() {
+    renders(this.write, this[$shadow], this[$state], this.handle)
   }
 }
 
@@ -110,11 +133,6 @@ export const create = () => class CustomStoreElement extends StoreElement {
 
   static update(fn) {
     this.prototype.update = fn
-    return this
-  }
-
-  static setup(fn) {
-    this.prototype.setup = fn
     return this
   }
 
@@ -144,9 +162,5 @@ export const create = () => class CustomStoreElement extends StoreElement {
       }
     })
     return this
-  }
-
-  static define(name) {
-    customElements.define(name, this)
   }
 }
