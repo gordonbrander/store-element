@@ -1,5 +1,11 @@
-import {create, writer} from "../store-element.js"
-import {html} from './helpers.js'
+import {create} from "../store-element.js"
+import {writer} from "../writer.js"
+
+const html = string => {
+  let template = document.createElement("template")
+  template.innerHTML = string
+  return template.content
+}
 
 const init = el => {
   let count = parseInt(el.getAttribute('count'))
@@ -53,28 +59,27 @@ const template = html(`
 <button id="button">Increment</button>
 `)
 
-const write = writer({
-  mount: (shadow, curr, handle) => {
-    let html = template.content.cloneNode(true)
-    shadow.appendChild(html)
+const mount = (shadow, curr, handle) => {
+  let html = template.cloneNode(true)
+  shadow.appendChild(html)
+  let count = shadow.querySelector("#count")
+  count.innerText = curr.count
+  let button = shadow.querySelector("#button")
+  button.addEventListener('click', handle)
+}
+
+const write = (shadow, prev, curr, handle) => {
+  if (prev.count != curr.count) {
     let count = shadow.querySelector("#count")
     count.innerText = curr.count
-    let button = shadow.querySelector("#button")
-    button.addEventListener('click', handle)
-  },
-  write: (shadow, prev, curr, handle) => {
-    if (prev.count != curr.count) {
-      let count = shadow.querySelector("#count")
-      count.innerText = curr.count
-    }
   }
-})
+}
 
 let el = create()
   .init(init)
   .update(update)
   .event(event)
-  .write(write)
+  .write(writer({mount, write}))
   .prop(
     'count',
     state => state.count,
