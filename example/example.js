@@ -1,45 +1,51 @@
-import {store, component, mount, renderable} from '../store-element.js'
+import {store, writer, mount, renderable} from '../store-element.js'
+import {style, el, append, appendAll, setText, text, select} from '../dom.js'
 
-const button = component({
-  html: `
-    <style>
-    .button {
-      font-size: 24px;
-    }
-    </style>
-    <button class="button"></button>
-  `,
+const click = {type: 'click'}
+
+const button = writer({
   setup: (host, curr, handle) => {
-    host.querySelector(':scope .button').innerText = curr.text
+    appendAll(host, [
+      style(`
+        .button {
+          font-size: 24px;
+        }
+      `),
+      el('button',
+        {
+          classes: ['button'],
+          events: {
+            click: () => handle(click)
+          }
+        },
+        [
+          text(`Clicks: ${curr.clicks}`)
+        ]
+      )
+    ])
   },
   patch: (host, prev, curr, handle) => {
-    if (prev.text !== curr.text) {
-      host.querySelector(':scope .button').innerText = curr.text
-    }
+    setText(select('.button', host), `Clicks: ${curr.clicks}`)
   }
 })
+
 customElements.define('my-button', renderable(button))
 
-const main = component({
-  html: `
-  <my-button></my-button>
-  `,
-  setup: (host, curr, handle) => {
-    host.querySelector(':scope my-button').render(curr)
-  },
-  patch: (host, prev, curr, handle) => {
-    host.querySelector(':scope my-button').render(curr)
-  }
-})
-customElements.define('my-main', renderable(main))
-
 const app = store({
-  init: () => ({text: "Foo"}),
-  update: (state, msg) => [state, null]
+  init: () => ({clicks: 0}),
+  update: (state, msg) => {
+    if (msg.type === 'click') {
+      return [
+        {...state, clicks: state.clicks + 1},
+        null
+      ]
+    }
+    return [state, null]
+  }
 })
 
 mount(
-  document.querySelector('body'),
-  document.createElement('my-main'),
+  select('body'),
+  el('my-button'),
   app
 )
