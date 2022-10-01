@@ -42,25 +42,29 @@ const _shadow = Symbol('shadow')
 export class RenderableElement extends HTMLElement {
   constructor() {
     super()
-    this.handle = this.handle.bind(this)
+    // Assign hard-bound handler that we can pass down to views.
+    // References `this.send` delegate in a late-binding way.
+    // If `this.send` gets set on instance, the override will be called
+    // instead of the prototype.
+    this.handle = msg => this.send(msg)
     // Attach *closed* shadow. We keep the insides of the component closed
     // so that we can be sure no one is messing with the DOM, and DOM
     // writes are deterministic functions of state.
     this[_shadow] = this.attachShadow({mode: 'closed'})
   }
 
-  handle(action) {
-    if (action) {
-      this.send(action)
-    }
-  }
-
+  // Render state on element.
+  // Safe to call multiple times. Will render at most once per frame.
   render(state) {
     renderNextFrame(this.write, this[_shadow], state, this.handle)
   }
 
+  // Override with custom write logic
   write(el, state, handle) {}
-  send(action) {}
+
+  // Delegate. Set a send function on an instance of this element to
+  // have it forward messages up to a parent component or store.
+  send(msg) {}
 }
 
 /// Convenience factory for defining a custom renderable element
@@ -103,6 +107,12 @@ export class Store {
 // Convenience factory for Store
 export const store = (config) => new Store(config)
 
+// Forward a send function so that messages addressed to it get tagged
+// before being sent.
+//
+// We use this when passing an address function down to a sub-component.
+export const forward = (send, tag) => (msg) => send(tag(msg))
+
 // Connect a store to a renderable element.
 // - Invokes `renderable.render` with new store states
 // - Sends renderable actions to `store.send`
@@ -116,33 +126,4 @@ export const connect = (store, renderable) => {
 export const mount = (parent, renderable, store) => {
   connect(store, renderable)
   parent.appendChild(renderable)
-}
-
-// Create a renderable by name, rendering it with an initial state.
-export const create = (name, state) => {
-  const el = document.createElement(name)
-  el.render(state)
-  return el
-}
-
-// Create template element
-const template = html => {
-  const templateEl = document.createElement('template')
-  templateEl.innerHTML = html
-  return templateEl
-}
-
-const noop = () => {}
-
-// Create a writer that scaffolds DOM with HTML
-// Scaffold is saved as a template for efficient cloning.
-// Setup and patch fill the scaffold with dynamic values.
-export const component = ({html="", setup=noop, patch=noop}) => {
-  const scaffold = template(html)
-  const setupScaffold = (el, curr, handle) => {
-    const inner = scaffold.content.cloneNode(true)
-    el.appendChild(inner)
-    setup(el, curr, handle)
-  }
-  return writer({setup: setupScaffold, patch})
 }

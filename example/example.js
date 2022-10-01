@@ -1,16 +1,24 @@
-import {store, component, mount, renderable} from '../store-element.js'
+import {store, writer, mount, renderable} from '../store-element.js'
+import {el, create} from '../dom.js'
 
-const button = component({
-  html: `
-    <style>
-    .button {
-      font-size: 24px;
-    }
-    </style>
-    <button class="button"></button>
-  `,
+const button = writer({
   setup: (host, curr, handle) => {
-    host.querySelector(':scope .button').innerText = curr.text
+    el(host)
+      .child(
+        create('style')
+          .html(`
+            .button {
+              font-size: 24px;
+            }
+          `)
+          .done()
+      )
+      .child(
+        create('button')
+          .classname('button')
+          .text(curr.text)
+          .done()
+      )
   },
   patch: (host, prev, curr, handle) => {
     if (prev.text !== curr.text) {
@@ -18,20 +26,8 @@ const button = component({
     }
   }
 })
-customElements.define('my-button', renderable(button))
 
-const main = component({
-  html: `
-  <my-button></my-button>
-  `,
-  setup: (host, curr, handle) => {
-    host.querySelector(':scope my-button').render(curr)
-  },
-  patch: (host, prev, curr, handle) => {
-    host.querySelector(':scope my-button').render(curr)
-  }
-})
-customElements.define('my-main', renderable(main))
+customElements.define('my-button', renderable(button))
 
 const app = store({
   init: () => ({text: "Foo"}),
@@ -40,6 +36,6 @@ const app = store({
 
 mount(
   document.querySelector('body'),
-  document.createElement('my-main'),
+  document.createElement('my-button'),
   app
 )
