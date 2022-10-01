@@ -1,7 +1,7 @@
-import {store, writer, mount, renderable} from '../store-element.js'
+import {store, writer, mount, renderable, forward} from '../store-element.js'
 import {style, el, append, appendAll, setText, text, select} from '../dom.js'
 
-const click = {type: 'click'}
+const click = () => ({type: 'click'})
 
 const button = writer({
   setup: (host, curr, handle) => {
@@ -15,7 +15,7 @@ const button = writer({
         {
           classes: ['button'],
           events: {
-            click: () => handle(click)
+            click: forward(handle, click)
           }
         },
         [
