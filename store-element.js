@@ -1,5 +1,3 @@
-const _state = Symbol('state')
-
 // Create a DOM writer function from a setup and patch function.
 // `setup` is called on first write, `patch` is called for every
 // subsequent write.
@@ -10,15 +8,23 @@ const _state = Symbol('state')
 //
 // Patch is only called if the state has changed, so it is safe to call
 // as often as you like.
-export const writer = ({setup, patch}) => (el, curr, handle) => {
-  const prev = el[_state]
-  if (prev == null) {
-    setup(el, curr, handle)
-    el[_state] = curr
-  } else if (prev !== curr) {
-    patch(el, prev, curr, handle)
-    el[_state] = curr
+export const writer = ({setup, patch}) => {
+  // Create a symbol for storing this writer's state.
+  // Symbol is unique to writer, so you can have multiple writers for the
+  // same element.
+  const _state = Symbol('state')
+
+  const write = (el, curr, handle) => {
+    const prev = el[_state]
+    if (prev == null) {
+      setup(el, curr, handle)
+      el[_state] = curr
+    } else if (prev !== curr) {
+      patch(el, prev, curr, handle)
+      el[_state] = curr
+    }
   }
+  return write
 }
 
 const _frame = Symbol('frame')
@@ -112,6 +118,16 @@ export const store = (config) => new Store(config)
 //
 // We use this when passing an address function down to a sub-component.
 export const forward = (send, tag) => (msg) => send(tag(msg))
+
+// Map an async value with function
+export const mapAsync = async (f, x) => f(await x)
+
+// Create an update function for a sub-component
+export const cursor = ({update, get, set, tag}) => (big, msg) => {
+  const [small, fx] = update(get(big), msg)
+  const next = set(big, small)
+  return [next, mapAsync(tag, fx)]
+}
 
 // Connect a store to a renderable element.
 // - Invokes `renderable.render` with new store states
