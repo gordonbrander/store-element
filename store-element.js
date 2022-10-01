@@ -24,6 +24,7 @@ export const writer = ({setup, patch}) => {
       el[_state] = curr
     }
   }
+
   return write
 }
 
@@ -48,21 +49,26 @@ const _shadow = Symbol('shadow')
 export class RenderableElement extends HTMLElement {
   constructor() {
     super()
+    // Attach *closed* shadow. We keep the insides of the component closed
+    // so that we can be sure no one is messing with the DOM, and DOM
+    // writes are deterministic functions of state.
+    this[_shadow] = this.attachShadow({mode: 'closed'})
+
     // Assign hard-bound handler that we can pass down to views.
     // References `this.send` delegate in a late-binding way.
     // If `this.send` gets set on instance, the override will be called
     // instead of the prototype.
     this.handle = msg => this.send(msg)
-    // Attach *closed* shadow. We keep the insides of the component closed
-    // so that we can be sure no one is messing with the DOM, and DOM
-    // writes are deterministic functions of state.
-    this[_shadow] = this.attachShadow({mode: 'closed'})
-  }
 
-  // Render state on element.
-  // Safe to call multiple times. Will render at most once per frame.
-  render(state) {
-    renderNextFrame(this.write, this[_shadow], state, this.handle)
+    // Render state on element.
+    // Safe to call multiple times. Will render at most once per frame.
+    // It's hard-bound so we can safely set it as a delegate on other classes.
+    this.render = state => renderNextFrame(
+      this.write,
+      this[_shadow],
+      state,
+      this.handle
+    )
   }
 
   // Override with custom write logic

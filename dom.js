@@ -30,15 +30,24 @@ export const setHTML = (el, inner) => {
   el.innerHTML = inner
 }
 
+export const listen = (el, events, options) => {
+  for (let [event, handle] of Object.entries(events)) {
+    el.addEventListener(event, handle, options)
+  }
+}
+
 export const writeEl = (el, props, children) => {
   if (props?.state != null) {
     element.render(state)
   }
-  if (props?.classes != null) {
+  if (props?.classes) {
     setClasses(el, props.classes)
   }
-  if (props?.attr != null) {
+  if (props?.attr) {
     setAttrs(el, props.attr)
+  }
+  if (props?.events) {
+    listen(el, props.events)
   }
   if (children != null) {
     appendAll(el, children)
