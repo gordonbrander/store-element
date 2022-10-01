@@ -1,80 +1,80 @@
-// StoreElement is a deterministic web component,
-// inspired loosely by Elm's App Architecture pattern.
+const _state = Symbol('state')
 
-const $frame = Symbol('animation frame')
+// Create a DOM updating function
+export const writer = ({setup, patch}) => (el, curr, handle) => {
+  const prev = el[_state]
+  if (prev == null) {
+    setup(el, curr, handle)
+    el[_state] = curr
+  } else if (prev !== curr) {
+    patch(el, prev, curr, handle)
+    el[_state] = curr
+  }
+}
 
-// Write a state to an element during the next animation frame.
-// Renders once per frame at most.
-export const renders = (writef, el, state, handle) => {
-  const frame = requestAnimationFrame(_ => {
+const _frame = Symbol('frame')
+
+// Write to an element using a model during the next animation frame.
+// Renders at most once per frame. Only writes if the element is dirty.
+export const renderNextFrame = (writef, el, state, handle) => {
+  const frame = requestAnimationFrame(() => {
     writef(el, state, handle)
   })
   // Avoid extra writes by cancelling any previous renders that
   // queued the next frame.
-  cancelAnimationFrame(el[$frame])
-  el[$frame] = frame
+  cancelAnimationFrame(el[_frame])
+  el[_frame] = frame
 }
 
-const $state = Symbol('state')
-const $shadow = Symbol('shadow')
+const _shadow = Symbol('shadow')
 
-// StoreElement is a deterministic web component,
-// inspired loosely by Elm's App Architecture pattern.
-export class StoreElement extends HTMLElement {
+// A RenderableElement is a custom element that knows how to render itself
+// in response to a new state.
+export class RenderableElement extends HTMLElement {
   constructor() {
     super()
-    this.send = this.send.bind(this)
     this.handle = this.handle.bind(this)
     // Attach *closed* shadow. We keep the insides of the component closed
     // so that we can be sure no one is messing with the DOM, and DOM
     // writes are deterministic functions of state.
-    this[$shadow] = this.attachShadow({mode: 'closed'})
-
-    const [state, fx] = this.init(this)
-    this[$state] = state
-
-    // Immediately write initial dom
-    this.write(this[$shadow], this[$state], this.handle)
-    this.effect(fx)
+    this[_shadow] = this.attachShadow({mode: 'closed'})
   }
 
-  // This lifecycle callback is called by the platform whenever an
-  // attribute changes on our element.
-  //
-  // Override the `attribute` method to map changes to actions.
-  attributeChangedCallback(name, prev, next) {
-    let msg = this.attribute(name, next)
-    if (msg) {
-      this.send(msg)
+  handle(action) {
+    if (action) {
+      this.send(action)
     }
   }
 
-  // Create initial model and effect via reading host element. 
-  init(el) {
-    throw new Error('Not implemented')
+  render(state) {
+    renderNextFrame(this.write, this[_shadow], state, this.handle)
   }
 
-  // Update model via message, returning a new model and effect
-  update(prev, msg) {
-    throw new Error('Not implemented')
+  write(el, state, handle) {}
+  send(action) {}
+}
+
+/// Convenience factory for defining a custom renderable element
+export const renderable = (write) => {
+  class CustomRenderableElement extends RenderableElement {}
+  CustomRenderableElement.prototype.write = write
+  return CustomRenderableElement
+}
+
+// Store is a deterministic store for state, inspired loosely by
+// Elm's App Architecture pattern.
+export class Store {
+  constructor({init, update, flags}) {
+    this.state = init(flags)
+    this.update = update
+    this.send = this.send.bind(this)
   }
-
-  // Write state updates to shadow DOM
-  write(shadowRoot, state, handle) {}
-
-  // Map events to actions
-  event(event) {
-    return event
-  }
-
-  // Map attribute changes to actions
-  attribute(name, value) {}
 
   send(msg) {
-    const [state, fx] = this.update(this[$state], msg)
-    if (this[$state] !== state) {
-      this[$state] = state
-      this.render()
+    const [next, fx] = this.update(this.state, msg)
+    if (this.state !== next) {
+      this.state = next
+      this.render(next)
     }
     if (fx) {
       this.effect(fx)
@@ -88,56 +88,46 @@ export class StoreElement extends HTMLElement {
     }
   }
 
-  handle(event) {
-    const msg = this.event(event)
-    if (msg) {
-      this.send(msg)
-    }
-  }
-
-  render() {
-    renders(this.write, this[$shadow], this[$state], this.handle)
-  }
+  render(state) {}
 }
 
-// Builder allows us to define a custom StoreElement via
-// method chaining and plain functions, instead of class extension.
-export const create = () => class CustomStoreElement extends StoreElement {
-  static init(fn) {
-    this.prototype.init = fn
-    return this
-  }
+// Convenience factory for Store
+export const store = (config) => new Store(config)
 
-  static update(fn) {
-    this.prototype.update = fn
-    return this
-  }
-
-  static write(fn) {
-    this.prototype.write = fn
-    return this
-  }
-
-  static event(fn) {
-    this.prototype.event = fn
-    return this
-  }
-
-  static attr(keys, attribute) {
-    this.observedAttributes = keys
-    this.prototype.attribute = attribute
-    return this
-  }
-
-  static prop(key, get, tag) {
-    Object.defineProperty(this.prototype, key, {
-      get() {
-        return get(this[$state])
-      },
-      set(value) {
-        this.send(tag(value))
-      }
-    })
-    return this
-  }
+// Connect a store to a renderable element.
+// - Invokes `renderable.render` with new store states
+// - Sends renderable actions to `store.send`
+export const connect = (store, renderable) => {
+  store.render = renderable.render
+  renderable.send = store.send
+  renderable.render(store.state)
 }
+
+export const create = (name, state) => {
+  const el = document.createElement(name)
+  el.render(state)
+  return el
+}
+
+export const mount = (parent, renderable, store) => {
+  connect(store, renderable)
+  parent.appendChild(renderable)
+}
+
+const html = (str) => {
+  const template = document.createElement('template')
+  template.innerHTML = str
+  return template.content.cloneNode(true)
+}
+
+const noop = () => {}
+
+/// Create a writer that scaffolds DOM with style and HTML
+export const component = ({body, setup=noop, patch=noop}) => writer({
+  setup: (el, curr, handle) => {
+    el.innerHTML = ""
+    el.appendChild(html(body(curr)))
+    setup(el, curr, handle)
+  },
+  patch
+})
