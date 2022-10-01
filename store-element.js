@@ -1,6 +1,15 @@
 const _state = Symbol('state')
 
-// Create a DOM updating function
+// Create a DOM writer function from a setup and patch function.
+// `setup` is called on first write, `patch` is called for every
+// subsequent write.
+//
+// Writen state is saved to a hidden field of the element. On `patch`, we pass
+// the last state written and the next state to be written so you can compare
+// them to make efficient writes.
+//
+// Patch is only called if the state has changed, so it is safe to call
+// as often as you like.
 export const writer = ({setup, patch}) => (el, curr, handle) => {
   const prev = el[_state]
   if (prev == null) {
@@ -14,8 +23,8 @@ export const writer = ({setup, patch}) => (el, curr, handle) => {
 
 const _frame = Symbol('frame')
 
-// Write to an element using a model during the next animation frame.
-// Renders at most once per frame. Only writes if the element is dirty.
+// Write to an element using a state during the next animation frame.
+// Renders a given element at most once per frame.
 export const renderNextFrame = (writef, el, state, handle) => {
   const frame = requestAnimationFrame(() => {
     writef(el, state, handle)
@@ -28,8 +37,8 @@ export const renderNextFrame = (writef, el, state, handle) => {
 
 const _shadow = Symbol('shadow')
 
-// A RenderableElement is a custom element that knows how to render itself
-// in response to a new state.
+// A RenderableElement is a custom element that knows how to take a state
+// and render itself using a write function you define.
 export class RenderableElement extends HTMLElement {
   constructor() {
     super()
@@ -55,7 +64,7 @@ export class RenderableElement extends HTMLElement {
 }
 
 /// Convenience factory for defining a custom renderable element
-export const renderable = (write) => {
+export const renderable = write => {
   class CustomRenderableElement extends RenderableElement {}
   CustomRenderableElement.prototype.write = write
   return CustomRenderableElement
@@ -103,31 +112,37 @@ export const connect = (store, renderable) => {
   renderable.render(store.state)
 }
 
+// Mount a renderable to a parent, connecting it to a store instance.
+export const mount = (parent, renderable, store) => {
+  connect(store, renderable)
+  parent.appendChild(renderable)
+}
+
+// Create a renderable by name, rendering it with an initial state.
 export const create = (name, state) => {
   const el = document.createElement(name)
   el.render(state)
   return el
 }
 
-export const mount = (parent, renderable, store) => {
-  connect(store, renderable)
-  parent.appendChild(renderable)
-}
-
-const html = (str) => {
-  const template = document.createElement('template')
-  template.innerHTML = str
-  return template.content.cloneNode(true)
+// Create template element
+const template = html => {
+  const templateEl = document.createElement('template')
+  templateEl.innerHTML = html
+  return templateEl
 }
 
 const noop = () => {}
 
-/// Create a writer that scaffolds DOM with style and HTML
-export const component = ({body, setup=noop, patch=noop}) => writer({
-  setup: (el, curr, handle) => {
-    el.innerHTML = ""
-    el.appendChild(html(body(curr)))
+// Create a writer that scaffolds DOM with HTML
+// Scaffold is saved as a template for efficient cloning.
+// Setup and patch fill the scaffold with dynamic values.
+export const component = ({html="", setup=noop, patch=noop}) => {
+  const scaffold = template(html)
+  const setupScaffold = (el, curr, handle) => {
+    const inner = scaffold.content.cloneNode(true)
+    el.appendChild(inner)
     setup(el, curr, handle)
-  },
-  patch
-})
+  }
+  return writer({setup: setupScaffold, patch})
+}

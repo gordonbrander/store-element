@@ -1,23 +1,37 @@
-import {store, component, renderable} from '../store-element.js'
+import {store, component, mount, renderable} from '../store-element.js'
 
 const button = component({
-  body: state => `
+  html: `
     <style>
-    :host {
-      background: red;
+    .button {
+      font-size: 24px;
     }
     </style>
-    <button>Button</button>
+    <button class="button"></button>
   `,
+  setup: (host, curr, handle) => {
+    host.querySelector(':scope .button').innerText = curr.text
+  },
   patch: (host, prev, curr, handle) => {
     if (prev.text !== curr.text) {
-      let button = host.querySelector('button')
-      button.innerText = curr.text
+      host.querySelector(':scope .button').innerText = curr.text
     }
   }
 })
-
 customElements.define('my-button', renderable(button))
+
+const main = component({
+  html: `
+  <my-button></my-button>
+  `,
+  setup: (host, curr, handle) => {
+    host.querySelector(':scope my-button').render(curr)
+  },
+  patch: (host, prev, curr, handle) => {
+    host.querySelector(':scope my-button').render(curr)
+  }
+})
+customElements.define('my-main', renderable(main))
 
 const app = store({
   init: () => ({text: "Foo"}),
@@ -26,6 +40,6 @@ const app = store({
 
 mount(
   document.querySelector('body'),
-  document.createElement('my-button'),
-  store
+  document.createElement('my-main'),
+  app
 )
