@@ -52,14 +52,8 @@ export const cursor = ({update, get, set, tag}) => (big, msg) => {
 // - Sends renderable actions to `store.send`
 export const connect = (store, renderable) => {
   store.render = renderable.render
-  renderable.send = store.send
+  renderable.address = store.send
   renderable.render(store.state)
-}
-
-// Mount a renderable to a parent, connecting it to a store instance.
-export const mount = (parent, renderable, store) => {
-  connect(store, renderable)
-  parent.appendChild(renderable)
 }
 
 // Create a DOM writer function from a setup and patch function.
@@ -97,6 +91,9 @@ const _shadow = Symbol('shadow')
 // A RenderableElement is a custom element that knows how to take a state
 // and render itself using a write function you define.
 export class RenderableElement extends HTMLElement {
+  // Override with custom write logic
+  static write(el, state, handle) {}
+
   constructor() {
     super()
 
@@ -109,14 +106,14 @@ export class RenderableElement extends HTMLElement {
     // References `this.send` delegate in a late-binding way.
     // If `this.send` gets set on instance, the override will be called
     // instead of the prototype.
-    this.handle = msg => this.send(msg)
+    this.send = msg => this.address(msg)
 
     // Render state on element.
     // Safe to call multiple times. Will render at most once per frame.
     // It's hard-bound so we can safely set it as a delegate on other classes.
     this.render = state => {
       const frame = requestAnimationFrame(() => {
-        this.write(this[_shadow], state, this.handle)
+        this.constructor.write(this[_shadow], state, this.send)
       })
       cancelAnimationFrame(this._frame)
       this._frame = frame
@@ -129,34 +126,32 @@ export class RenderableElement extends HTMLElement {
     cancelAnimationFrame(this._frame)
   }
 
-  // Override with custom write logic
-  write(el, state, handle) {}
-
-  // Delegate. Set a send function on an instance of this element to
+  // Delegate. Set a send function on this property to
   // have it forward messages up to a parent component or store.
-  send(msg) {}
+  address(msg) {}
 }
 
 // A view is a stateless renderable that knows how to style itself.
 export class ViewElement extends RenderableElement {
+  // Override with custom styles
+  static style() {
+    return ''
+  }
+
   constructor() {
     super()
     let styleEl = document.createElement('style')
     styleEl.id = '__style__'
-    styleEl.innerHTML = this.style()
+    styleEl.innerHTML = this.constructor.style()
     this[_shadow].appendChild(styleEl)
-  }
-
-  style() {
-    return ''
   }
 }
 
 /// Convenience factory for defining a stateless view element
 export const view = ({style, write}) => {
   class CustomViewElement extends ViewElement {}
-  CustomViewElement.prototype.style = () => style
-  CustomViewElement.prototype.write = write
+  CustomViewElement.style = () => style
+  CustomViewElement.write = write
   return CustomViewElement
 }
 
@@ -175,6 +170,14 @@ const json = str => {
 // State be initialized via HTML with `state` attribute.
 // Typically used as a top-level view.
 export class ComponentElement extends ViewElement {
+  static init() {
+    return {}
+  }
+
+  static update(state, msg) {
+    return [state, null]
+  }
+
   constructor() {
     super()
     const stateAttr = this.getAttribute('state')
@@ -186,8 +189,8 @@ export class ComponentElement extends ViewElement {
 
   start(flags) {
     this.store = store({
-      init: this.init,
-      update: this.update,
+      init: this.constructor.init,
+      update: this.constructor.update,
       flags: flags
     })
     connect(this.store, this)
@@ -196,9 +199,9 @@ export class ComponentElement extends ViewElement {
 
 export const component = ({style, write, init, update}) => {
   class CustomComponentElement extends ComponentElement {}
-  CustomComponentElement.prototype.style = () => style
-  CustomComponentElement.prototype.write = write
-  CustomComponentElement.prototype.init = init
-  CustomComponentElement.prototype.update = update
+  CustomComponentElement.style = () => style
+  CustomComponentElement.write = write
+  CustomComponentElement.init = init
+  CustomComponentElement.update = update
   return CustomComponentElement
 }
