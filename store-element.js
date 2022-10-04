@@ -28,20 +28,6 @@ export const writer = ({setup, patch}) => {
   return write
 }
 
-const _frame = Symbol('frame')
-
-// Write to an element using a state during the next animation frame.
-// Renders a given element at most once per frame.
-export const renderNextFrame = (writef, el, state, handle) => {
-  const frame = requestAnimationFrame(() => {
-    writef(el, state, handle)
-  })
-  // Avoid extra writes by cancelling any previous renders that
-  // queued the next frame.
-  cancelAnimationFrame(el[_frame])
-  el[_frame] = frame
-}
-
 const _shadow = Symbol('shadow')
 
 // A RenderableElement is a custom element that knows how to take a state
@@ -63,12 +49,19 @@ export class RenderableElement extends HTMLElement {
     // Render state on element.
     // Safe to call multiple times. Will render at most once per frame.
     // It's hard-bound so we can safely set it as a delegate on other classes.
-    this.render = state => renderNextFrame(
-      this.write,
-      this[_shadow],
-      state,
-      this.handle
-    )
+    this.render = state => {
+      const frame = requestAnimationFrame(() => {
+        this.write(this[_shadow], state, this.handle)
+      })
+      cancelAnimationFrame(this._frame)
+      this._frame = frame
+    }
+  }
+
+  disconnectedCallback() {
+    // If element is removed from DOM, cancel any pending renders.
+    // We don't need to render it.
+    cancelAnimationFrame(this._frame)
   }
 
   // Override with custom write logic
