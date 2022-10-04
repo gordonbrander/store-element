@@ -1,6 +1,15 @@
 import {store, view, component, writer, forward} from '../store-element.js'
 import {el, select} from '../dom.js'
 
+// Actions
+const click = () => ({type: 'click'})
+
+const styleButton = `
+  .button {
+    font-size: 24px;
+  }
+`
+
 const writeButton = writer({
   setup: (host, curr, handle) => {
     el(host)
@@ -19,26 +28,36 @@ const writeButton = writer({
 })
 
 const button = view({
-  style: `
-    .button {
-      font-size: 24px;
-    }
-  `,
+  style: styleButton,
   write: writeButton
 })
 
 customElements.define('my-button', button)
 
-const click = () => ({type: 'click'})
+const styleMain = `
+  #main {
+    background: #222;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+`
 
 const writeMain = writer({
   setup: (host, curr, handle) => {
     el(host)
       .append(
-        el.create('my-button')
-          .id('button')
-          .send(handle)
-          .render(curr)
+        el.create('div')
+          .id('main')
+          .append(
+            el.create('my-button')
+              .id('button')
+              .send(handle)
+              .render(curr)
+              .done()
+          )
           .done()
       )
   },
@@ -48,27 +67,22 @@ const writeMain = writer({
   }
 })
 
+const initMain = ({clicks=0}) => ({clicks})
+
+const updateMain = (state, msg) => {
+  if (msg.type === 'click') {
+    return [
+      {...state, clicks: state.clicks + 1},
+      null
+    ]
+  }
+  return [state, null]
+}
+
 const main = component({
-  init: ({clicks=0}) => ({clicks}),
-  update: (state, msg) => {
-    if (msg.type === 'click') {
-      return [
-        {...state, clicks: state.clicks + 1},
-        null
-      ]
-    }
-    return [state, null]
-  },
-  style: `
-    .main {
-      background: blue;
-      width: 100vw;
-      height: 100vw;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-  `,
+  init: initMain,
+  update: updateMain,
+  style: styleMain,
   write: writeMain
 })
 
