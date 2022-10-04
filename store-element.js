@@ -1,102 +1,3 @@
-// Create a DOM writer function from a setup and patch function.
-// `setup` is called on first write, `patch` is called for every
-// subsequent write.
-//
-// Writen state is saved to a hidden field of the element. On `patch`, we pass
-// the last state written and the next state to be written so you can compare
-// them to make efficient writes.
-//
-// Patch is only called if the state has changed, so it is safe to call
-// as often as you like.
-export const writer = ({setup, patch}) => {
-  // Create a symbol for storing this writer's state.
-  // Symbol is unique to writer, so you can have multiple writers for the
-  // same element.
-  const _state = Symbol('state')
-
-  const write = (el, curr, handle) => {
-    const prev = el[_state]
-    if (prev == null) {
-      setup(el, curr, handle)
-      el[_state] = curr
-    } else if (prev !== curr) {
-      patch(el, prev, curr, handle)
-      el[_state] = curr
-    }
-  }
-
-  return write
-}
-
-const _shadow = Symbol('shadow')
-
-export const shadowWriter = ({style='', setup, patch}) => {
-  let styleEl = document.createElement('style')
-  styleEl.id = 'style'
-  styleEl.innerHTML = style
-
-  const setupShadow = (el, curr, handle) => {
-    // Attach *closed* shadow. We keep the insides of the component closed
-    // so that we can be sure no one is messing with the DOM, and DOM
-    // writes are deterministic functions of state.
-    el[_shadow] = el.attachShadow({mode: 'closed'})
-    const styleClone = styleEl.cloneNode(true)
-    el[_shadow].appendChild(styleClone)
-    setup(el[_shadow], curr, handle)
-  }
-
-  const patchShadow = (el, curr, handle) => {
-    patch(el[_shadow], curr, handle)
-  }
-
-  return writer({setup: setupShadow, patch: patchShadow})
-}
-
-// A RenderableElement is a custom element that knows how to take a state
-// and render itself using a write function you define.
-export class RenderableElement extends HTMLElement {
-  constructor() {
-    super()
-
-    // Assign hard-bound handler that we can pass down to views.
-    // References `this.send` delegate in a late-binding way.
-    // If `this.send` gets set on instance, the override will be called
-    // instead of the prototype.
-    this.handle = msg => this.send(msg)
-
-    // Render state on element.
-    // Safe to call multiple times. Will render at most once per frame.
-    // It's hard-bound so we can safely set it as a delegate on other classes.
-    this.render = state => {
-      const frame = requestAnimationFrame(() => {
-        this.write(this, state, this.handle)
-      })
-      cancelAnimationFrame(this._frame)
-      this._frame = frame
-    }
-  }
-
-  disconnectedCallback() {
-    // If element is removed from DOM, cancel any pending renders.
-    // We don't need to render it.
-    cancelAnimationFrame(this._frame)
-  }
-
-  // Override with custom write logic
-  write(el, state, handle) {}
-
-  // Delegate. Set a send function on an instance of this element to
-  // have it forward messages up to a parent component or store.
-  send(msg) {}
-}
-
-/// Convenience factory for defining a custom renderable element
-export const renderable = write => {
-  class CustomRenderableElement extends RenderableElement {}
-  CustomRenderableElement.prototype.write = write
-  return CustomRenderableElement
-}
-
 // Store is a deterministic store for state, inspired loosely by
 // Elm's App Architecture pattern.
 export class Store {
@@ -159,4 +60,145 @@ export const connect = (store, renderable) => {
 export const mount = (parent, renderable, store) => {
   connect(store, renderable)
   parent.appendChild(renderable)
+}
+
+// Create a DOM writer function from a setup and patch function.
+// `setup` is called on first write, `patch` is called for every
+// subsequent write.
+//
+// Writen state is saved to a hidden field of the element. On `patch`, we pass
+// the last state written and the next state to be written so you can compare
+// them to make efficient writes.
+//
+// Patch is only called if the state has changed, so it is safe to call
+// as often as you like.
+export const writer = ({setup, patch}) => {
+  // Create a symbol for storing this writer's state.
+  // Symbol is unique to writer, so you can have multiple writers for the
+  // same element.
+  const _state = Symbol('state')
+
+  const write = (el, curr, handle) => {
+    const prev = el[_state]
+    if (prev == null) {
+      setup(el, curr, handle)
+      el[_state] = curr
+    } else if (prev !== curr) {
+      patch(el, prev, curr, handle)
+      el[_state] = curr
+    }
+  }
+
+  return write
+}
+
+const _shadow = Symbol('shadow')
+
+// A RenderableElement is a custom element that knows how to take a state
+// and render itself using a write function you define.
+export class RenderableElement extends HTMLElement {
+  constructor() {
+    super()
+
+    // Attach *closed* shadow. We keep the insides of the component closed
+    // so that we can be sure no one is messing with the DOM, and DOM
+    // writes are deterministic functions of state.
+    this[_shadow] = this.attachShadow({mode: 'closed'})
+
+    // Assign hard-bound handler that we can pass down to views.
+    // References `this.send` delegate in a late-binding way.
+    // If `this.send` gets set on instance, the override will be called
+    // instead of the prototype.
+    this.handle = msg => this.send(msg)
+
+    // Render state on element.
+    // Safe to call multiple times. Will render at most once per frame.
+    // It's hard-bound so we can safely set it as a delegate on other classes.
+    this.render = state => {
+      const frame = requestAnimationFrame(() => {
+        this.write(this[_shadow], state, this.handle)
+      })
+      cancelAnimationFrame(this._frame)
+      this._frame = frame
+    }
+  }
+
+  disconnectedCallback() {
+    // If element is removed from DOM, cancel any pending renders.
+    // We don't need to render it.
+    cancelAnimationFrame(this._frame)
+  }
+
+  // Override with custom write logic
+  write(el, state, handle) {}
+
+  // Delegate. Set a send function on an instance of this element to
+  // have it forward messages up to a parent component or store.
+  send(msg) {}
+}
+
+// A view is a stateless renderable that knows how to style itself.
+export class ViewElement extends RenderableElement {
+  constructor() {
+    super()
+    let styleEl = document.createElement('style')
+    styleEl.id = '__style__'
+    styleEl.innerHTML = this.style()
+    this[_shadow].appendChild(styleEl)
+  }
+
+  style() {
+    return ''
+  }
+}
+
+/// Convenience factory for defining a stateless view element
+export const view = ({style, write}) => {
+  class CustomViewElement extends ViewElement {}
+  CustomViewElement.prototype.style = () => style
+  CustomViewElement.prototype.write = write
+  return CustomViewElement
+}
+
+const json = str => {
+  if (str === '') {
+    return
+  }
+  try {
+    return JSON.parse(str)
+  } catch {
+    return
+  }
+}
+
+// A stateful view that holds a store instance which drives its state updates.
+// State be initialized via HTML with `state` attribute.
+// Typically used as a top-level view.
+export class ComponentElement extends ViewElement {
+  constructor() {
+    super()
+    const stateAttr = this.getAttribute('state')
+    const flags = json(stateAttr)
+    if (flags != null) {
+      this.start(flags)
+    }
+  }
+
+  start(flags) {
+    this.store = store({
+      init: this.init,
+      update: this.update,
+      flags: flags
+    })
+    connect(this.store, this)
+  }
+}
+
+export const component = ({style, write, init, update}) => {
+  class CustomComponentElement extends ComponentElement {}
+  CustomComponentElement.prototype.style = () => style
+  CustomComponentElement.prototype.write = write
+  CustomComponentElement.prototype.init = init
+  CustomComponentElement.prototype.update = update
+  return CustomComponentElement
 }
