@@ -30,15 +30,33 @@ export const writer = ({setup, patch}) => {
 
 const _shadow = Symbol('shadow')
 
+export const shadowWriter = ({style='', setup, patch}) => {
+  let styleEl = document.createElement('style')
+  styleEl.id = 'style'
+  styleEl.innerHTML = style
+
+  const setupShadow = (el, curr, handle) => {
+    // Attach *closed* shadow. We keep the insides of the component closed
+    // so that we can be sure no one is messing with the DOM, and DOM
+    // writes are deterministic functions of state.
+    el[_shadow] = el.attachShadow({mode: 'closed'})
+    const styleClone = styleEl.cloneNode(true)
+    el[_shadow].appendChild(styleClone)
+    setup(el[_shadow], curr, handle)
+  }
+
+  const patchShadow = (el, curr, handle) => {
+    patch(el[_shadow], curr, handle)
+  }
+
+  return writer({setup: setupShadow, patch: patchShadow})
+}
+
 // A RenderableElement is a custom element that knows how to take a state
 // and render itself using a write function you define.
 export class RenderableElement extends HTMLElement {
   constructor() {
     super()
-    // Attach *closed* shadow. We keep the insides of the component closed
-    // so that we can be sure no one is messing with the DOM, and DOM
-    // writes are deterministic functions of state.
-    this[_shadow] = this.attachShadow({mode: 'closed'})
 
     // Assign hard-bound handler that we can pass down to views.
     // References `this.send` delegate in a late-binding way.
@@ -51,7 +69,7 @@ export class RenderableElement extends HTMLElement {
     // It's hard-bound so we can safely set it as a delegate on other classes.
     this.render = state => {
       const frame = requestAnimationFrame(() => {
-        this.write(this[_shadow], state, this.handle)
+        this.write(this, state, this.handle)
       })
       cancelAnimationFrame(this._frame)
       this._frame = frame

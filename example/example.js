@@ -1,18 +1,14 @@
-import {store, writer, mount, renderable, forward} from '../store-element.js'
+import {store, shadowWriter, mount, renderable, forward} from '../store-element.js'
 import {el, select} from '../dom.js'
 
-const button = writer({
+const button = shadowWriter({
+  style: `
+    .button {
+      font-size: 24px;
+    }
+  `,
   setup: (host, curr, handle) => {
     el(host)
-      .append(
-        el.create('style')
-          .html(`
-            .button {
-              font-size: 24px;
-            }
-          `)
-          .done()
-      )
       .append(
         el.create('button')
           .classes(['button'])
@@ -29,23 +25,19 @@ const button = writer({
 
 customElements.define('my-button', renderable(button))
 
-const main = writer({
+const main = shadowWriter({
+  style: `
+    .main {
+      background: blue;
+      width: 100vw;
+      height: 100vw;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  `,
   setup: (host, curr, handle) => {
     el(host)
-      .append(
-        el.create('style')
-          .html(`
-            .main {
-              background: blue;
-              width: 100vw;
-              height: 100vw;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            }
-          `)
-          .done()
-      )
       .append(
         el.create('my-button')
           .id('button')
