@@ -31,6 +31,11 @@ type Updating<State, Action> = (
 // An effect that produces nothing
 export const nofx = async function*() {}
 
+// Wrap a promise in an fx
+export const fx = async function*<Action>(promise: Promise<Action>) {
+  yield await promise
+}
+
 // An effect that produces "just" an action
 export const just = async function*<Action>(action: Action) {
   yield action
@@ -145,12 +150,21 @@ export const cursor = <State, Action, InnerState, InnerAction>(
 // - Invokes `renderable.render` with new store states
 // - Sends renderable actions to `store.send`
 export const connect = <State, Action>(
-  store: StoreInterface<State, Action>,
-  renderable: Renderable<State, Action>
+  renderable: Renderable<State, Action>,
+  store: StoreInterface<State, Action>
 ) => {
   store.render = renderable.render
   renderable.address = store.send
   renderable.render(store.state)
+}
+
+export const mount = <State, Action>(
+  parent: HTMLElement,
+  renderable: RenderableElement<State, Action>,
+  store: StoreInterface<State, Action>
+) => {
+  connect(renderable, store)
+  parent.appendChild(renderable)
 }
 
 // Create a DOM writer function from a setup and patch function.

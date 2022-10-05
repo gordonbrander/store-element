@@ -1,8 +1,17 @@
-import {store, view, writer, forward, change, connect} from '../dist/store-element.js'
+import {
+  store, view, writer, forward, change, mount, just, fx
+} from '../dist/store-element.js'
 import {el} from './dom.js'
 
 // Actions
 const click = () => ({type: 'click'})
+const tick = () => ({type: 'tick'})
+
+const after = async (action, timeout)  => new Promise(
+  succeed => {
+    setTimeout(() => succeed(action), timeout)
+  }
+)
 
 const cssButton = `
   .button {
@@ -40,8 +49,15 @@ const cssMain = `
     width: 100vw;
     height: 100vh;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+  }
+  #time {
+    font-size: 16px;
+    color: #fff;
+    text-align: center;
+    display: block;
   }
 `
 
@@ -51,6 +67,12 @@ const writeMain = writer({
       .append(
         el.create('div')
           .id('main')
+          .append(
+            el.create('div')
+              .id('time')
+              .text(curr.t)
+              .done()
+          )
           .append(
             el.create('my-button')
               .id('button')
@@ -62,6 +84,8 @@ const writeMain = writer({
       )
   },
   patch: (host, prev, curr, handle) => {
+    el.select('#time', host)
+      .text(curr.t)
     el.select('my-button#button', host)
       .render(curr)
   }
@@ -75,12 +99,20 @@ const main = view({
 customElements.define('my-main', main)
 
 const state = {
+  t: Date.now(),
   clicks: 0
 }
 
-const update = (state, msg) => {
-  if (msg.type === 'click') {
-    return change({...state, clicks: state.clicks + 1})
+const update = (state, action) => {
+  if (action.type === 'click') {
+    return change(
+      {...state, clicks: state.clicks + 1},
+      fx(after(tick(), 1000))
+    )
+  } else if (action.type === 'tick') {
+    return change(
+      {...state, t: Date.now()}
+    )
   }
   return change(state)
 }
@@ -90,11 +122,11 @@ const mainStore = store({
   update
 })
 
-const mainView = el.create('my-main').done()
+const mainEl = el.create('my-main').done()
+const bodyEl = el.select('body').done()
 
-connect(
-  mainStore,
-  mainView,
+mount(
+  bodyEl,
+  mainEl,
+  mainStore
 )
-
-el.select('body').append(mainView)

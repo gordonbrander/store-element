@@ -1,5 +1,9 @@
 // An effect that produces nothing
 export const nofx = async function* () { };
+// Wrap a promise in an fx
+export const fx = async function* (promise) {
+    yield await promise;
+};
 // An effect that produces "just" an action
 export const just = async function* (action) {
     yield action;
@@ -61,14 +65,17 @@ export const cursor = ({ update, get, set, tag }) => (state, action) => {
     const next = set(state, inner.state);
     return change(next, tagged(tag, inner.fx));
 };
-export const updateMany = (update, state, action) => Change;
 // Connect a store to a renderable element.
 // - Invokes `renderable.render` with new store states
 // - Sends renderable actions to `store.send`
-export const connect = (store, renderable) => {
+export const connect = (renderable, store) => {
     store.render = renderable.render;
     renderable.address = store.send;
     renderable.render(store.state);
+};
+export const mount = (parent, renderable, store) => {
+    connect(renderable, store);
+    parent.appendChild(renderable);
 };
 // Create a DOM writer function from a setup and patch function.
 // `setup` is called on first write, `patch` is called for every

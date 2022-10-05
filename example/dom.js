@@ -1,3 +1,5 @@
+import {writer} from '../dist/store-element.js'
+
 export const setClasses = (el, classes) => {
   el.className = classes.join(' ')
 }
@@ -32,9 +34,16 @@ export const children = (el, children) => {
 }
 
 // Set innerText on element
-export const setText = (el, inner) => {
-  el.innerText = inner
-}
+export const setText = writer({
+  setup: (el, text, _) => {
+    el.innerText = text
+  },
+  patch: (el, prev, curr, _) => {
+    if (prev !== curr) {
+      el.innerText = curr
+    }
+  }
+})
 
 // Set innerHTML on element
 export const setHTML = (el, inner) => {
