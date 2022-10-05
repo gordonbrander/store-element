@@ -13,13 +13,8 @@ type Writing<Subject, State, Action> = (
 // side-effect with it.
 type Address<Action> = (action: Action) => void
 
-// An "Fx", or effect, is an async iterable for asyncronous side-effects
-// that produce actions.
-//
-// Promises of the generator are expected to always succeed and never fail.
-// Failure should be represented as a promise success for an action
-// that describes the failure condition.
-type Fx<Action> = AsyncGenerator<Action, void, void>
+// A promise that always succeeds with either an action or undefined.
+type Task<Action> = Promise<Action|undefined>
 
 // An updating function takes a state and an action and produces a
 // change representing the next state and effects.
@@ -28,36 +23,38 @@ type Updating<State, Action> = (
   action: Action
 ) => Change<State, Action>
 
-// An effect that produces nothing
-export const nofx = async function*() {}
-
-// Wrap a promise in an fx
-export const fx = async function*<Action>(promise: Promise<Action>) {
-  yield await promise
-}
-
 // An effect that produces "just" an action
-export const just = async function*<Action>(action: Action) {
-  yield action
-}
+export const just = async <Action>(action: Action) => action
 
 // Represents a state change transaction.
 // A container for a state/fx pair
 export class Change<State, Action> {
   state: State
-  fx: Fx<Action>
+  fx: Array<Task<Action>>
 
-  constructor(state: State, fx: Fx<Action> = nofx()) {
+  constructor(state: State, fx: Array<Task<Action>> = []) {
     this.state = state
     this.fx = fx
   }
+
+  mergeTasks(fx: Array<Task<Action>>) {
+    return new Change(
+      this.state,
+      this.fx.concat(fx)
+    )
+  }
 }
 
-// Create a new change, generating default `nofx` if no fx are specified.
+// Create a new change, defaulting to no fx, if no fx are specified.
 export const change = <State, Action>(
   state: State,
-  fx: Fx<Action> = nofx()
-) => new Change(state, fx)
+  task?: Task<Action>
+) => {
+  if (task) {
+    return new Change(state, [task])
+  }
+  return new Change(state)
+}
 
 // An abstract interface for a reactive store
 interface StoreInterface<State, Action> {
@@ -90,16 +87,16 @@ export class Store<State, Action> implements StoreInterface<State, Action> {
       this.state = next.state
       this.render(next.state)
     }
-    this.effect(next.fx)
+
+    for (const fx of next.fx) {
+      this.effect(fx)
+    }
   }
 
   // Run an effect, sending any resulting action to the store.
-  async effect(fx: Fx<Action>) {
-    for await (const action of fx) {
-      if (action) {
-        this.send(action)
-      }  
-    }
+  async effect(task: Task<Action>) {
+    let action = await task
+    this.send(action)
   }
 
   render(state: State) {}
@@ -120,15 +117,11 @@ export const forward = <Action, InnerAction>(
   tag: (value: InnerAction) => Action
 ) => (action: InnerAction) => send(tag(action))
 
-// Tag an fx, mapping its value to some new value.
-export const tagged = async function* <InnerAction, Action>(
-  f: (value: InnerAction) => Action,
-  fx: Fx<InnerAction>
-): Fx<Action> {
-  for await (const value of fx) {
-    yield f(value)
-  }
-}
+// Tag an fx, mapping tasks with some function.
+export const mapAsync = <InnerAction, Action>(
+  f: (action: InnerAction) => Action,
+  fx: Array<Task<InnerAction>>
+) => fx.map(async (task) => f(await task))
 
 interface CursorOptions<State, Action, InnerState, InnerAction> {
   update: Updating<InnerState, InnerAction>
@@ -143,7 +136,26 @@ export const cursor = <State, Action, InnerState, InnerAction>(
 ) => (state: State, action: InnerAction) => {
   const inner = update(get(state), action)
   const next = set(state, inner.state)
-  return change(next, tagged(tag, inner.fx))
+  return new Change(next, mapAsync(tag, inner.fx))
+}
+
+// Batch a series of update actions
+// Returns a Change containing the resulting state and batched fx.
+export const updateBatch = <State, Action>(
+  update: Updating<State, Action>,
+  state: State,
+  actions: Array<Action>
+) => {
+  let curr = state
+  let fx: Array<Task<Action>> = []
+  for (let action of actions) {
+    const next = update(curr, action)
+    curr = next.state
+    for (const task of next.fx) {
+      fx.push(task)
+    }
+  }
+  return new Change(curr, fx)
 }
 
 // Connect a store to a renderable element.
