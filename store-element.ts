@@ -1,8 +1,42 @@
-type Fx<Action> = Promise<Action|undefined>
+// A rendering function (takes a state and produces some side-effect with it)
+type Rendering<State> = (state: State) => void
 
-// Shortcut for an effect that produces nothing
-export const nofx = async () => undefined
+// A writing function takes a subject, a state, and an address.
+// Subject is expected to be mutated.
+type Writing<Subject, State, Action> = (
+  subject: Subject,
+  state: State,
+  send: Address<Action>
+) => void
 
+// An address function takes an action message and produces some
+// side-effect with it.
+type Address<Action> = (action: Action) => void
+
+// An "Fx", or effect, is an async iterable for asyncronous side-effects
+// that produce actions.
+//
+// Promises of the generator are expected to always succeed and never fail.
+// Failure should be represented as a promise success for an action
+// that describes the failure condition.
+type Fx<Action> = AsyncGenerator<Action, void, void>
+
+// An updating function takes a state and an action and produces a
+// change representing the next state and effects.
+type Updating<State, Action> = (
+  state: State,
+  action: Action
+) => Change<State, Action>
+
+// An effect that produces nothing
+export const nofx = async function*() {}
+
+// An effect that produces "just" an action
+export const just = async function*<Action>(action: Action) {
+  yield action
+}
+
+// Represents a state change transaction.
 // A container for a state/fx pair
 export class Change<State, Action> {
   state: State
@@ -14,21 +48,11 @@ export class Change<State, Action> {
   }
 }
 
-// Convenience factory
+// Create a new change, generating default `nofx` if no fx are specified.
 export const change = <State, Action>(
   state: State,
   fx: Fx<Action> = nofx()
 ) => new Change(state, fx)
-
-type Mapping<A, B> = (value: A) => B
-type Rendering<State> = (state: State) => void
-type Writing<Subject, State, Action> = (
-  subject: Subject,
-  state: State,
-  send: Address<Action>
-  ) => void
-type Address<Action> = (action: Action) => void
-type Updating<State, Action> = (state: State, action: Action) => Change<State, Action>
 
 // An abstract interface for a reactive store
 interface StoreInterface<State, Action> {
@@ -54,6 +78,7 @@ export class Store<State, Action> implements StoreInterface<State, Action> {
     this.send = this.send.bind(this)
   }
 
+  // Send an action to the store
   send(action: Action) {
     const next = this.update(this.state, action)
     if (this.state !== next.state) {
@@ -63,36 +88,40 @@ export class Store<State, Action> implements StoreInterface<State, Action> {
     this.effect(next.fx)
   }
 
+  // Run an effect, sending any resulting action to the store.
   async effect(fx: Fx<Action>) {
-    const msg = await fx
-    if (msg) {
-      this.send(msg)
+    for await (const action of fx) {
+      if (action) {
+        this.send(action)
+      }  
     }
   }
 
   render(state: State) {}
 }
 
-// Convenience factory for Store
-export const store = <State, Action>(options: StoreOptions<State, Action>) => new Store(options)
+// Create a new store
+export const store = <State, Action>(
+  options: StoreOptions<State, Action>
+) => new Store(options)
 
 // Forward a send function so that messages addressed to it get tagged
 // before being sent.
 //
-// We use this when passing an address function down to a sub-component.
+// We use this to map between component domains, when passing an address
+// down to a sub-component.
 export const forward = <Action, InnerAction>(
   send: Address<Action>,
-  tag: Mapping<InnerAction, Action>
+  tag: (value: InnerAction) => Action
 ) => (action: InnerAction) => send(tag(action))
 
-// Map an async value with function
-export const tagged = async <InnerAction, Action>(
-  f: Mapping<InnerAction, Action>,
+// Tag an fx, mapping its value to some new value.
+export const tagged = async function* <InnerAction, Action>(
+  f: (value: InnerAction) => Action,
   fx: Fx<InnerAction>
-): Fx<Action> => {
-  const value = await fx
-  if (value) {
-    return f(value)
+): Fx<Action> {
+  for await (const value of fx) {
+    yield f(value)
   }
 }
 
@@ -118,7 +147,7 @@ export const cursor = <State, Action, InnerState, InnerAction>(
 export const connect = <State, Action>(
   store: StoreInterface<State, Action>,
   renderable: Renderable<State, Action>
-  ) => {
+) => {
   store.render = renderable.render
   renderable.address = store.send
   renderable.render(store.state)
@@ -216,7 +245,7 @@ implements Renderable<State, Action>
   address(action: Action) {}
 }
 
-// A view is a stateless renderable that knows how to style itself.
+// A view is a renderable that knows how to style itself.
 export class ViewElement<State, Action>
 extends RenderableElement<State, Action>
 {
@@ -240,68 +269,11 @@ interface ViewOptions<State, Action> {
 }
 
 /// Convenience factory for defining a stateless view element
-export const view = <State, Action>({css, write}: ViewOptions<State, Action>) => {
+export const view = <State, Action>(
+  {css, write}: ViewOptions<State, Action>
+) => {
   class CustomViewElement extends ViewElement<State, Action> {}
   CustomViewElement.prototype.css = () => css
   CustomViewElement.prototype.write = write
   return CustomViewElement
-}
-
-const json = (str: string) => {
-  if (str === '') {
-    return
-  }
-  try {
-    return JSON.parse(str)
-  } catch {
-    return
-  }
-}
-
-// A stateful view that holds a store instance which drives its state updates.
-// State be initialized via HTML with `state` attribute.
-// Typically used as a top-level view.
-export class ComponentElement<State, Action>
-extends ViewElement<State, Action>
-{
-  store?: Store<State, Action>
-
-  constructor() {
-    super()
-    const stateAttr = this.getAttribute('state')
-    const flags = json(stateAttr)
-    if (flags != null) {
-      this.start(state)
-    }
-  }
-
-  update(state: State, action: Action): Change<State, Action> {
-    return change(state)
-  }
-
-  start(state: State) {
-    this.store = store({
-      state: state,
-      update: this.update
-    })
-    connect(this.store, this)
-  }
-}
-
-interface ComponentOptions<State, Action> {
-  css: string
-  update: Updating<State, Action>
-  write: Writing<ShadowRoot, State, Action>
-}
-
-export const component = <State, Action>({
-  css,
-  update,
-  write
-}: ComponentOptions<State, Action>) => {
-  class CustomComponentElement<State, Action> extends ComponentElement<State, Action> {}
-  CustomComponentElement.prototype.css = () => css
-  CustomComponentElement.prototype.write = write
-  CustomComponentElement.prototype.update = update
-  return CustomComponentElement
 }

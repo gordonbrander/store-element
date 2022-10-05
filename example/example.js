@@ -1,10 +1,10 @@
-import {store, view, component, writer, forward} from '../store-element.js'
-import {el, select} from '../dom.js'
+import {store, view, writer, forward, change, connect} from '../dist/store-element.js'
+import {el} from './dom.js'
 
 // Actions
 const click = () => ({type: 'click'})
 
-const styleButton = `
+const cssButton = `
   .button {
     font-size: 24px;
   }
@@ -28,13 +28,13 @@ const writeButton = writer({
 })
 
 const button = view({
-  style: styleButton,
+  css: cssButton,
   write: writeButton
 })
 
 customElements.define('my-button', button)
 
-const styleMain = `
+const cssMain = `
   #main {
     background: #222;
     width: 100vw;
@@ -67,23 +67,34 @@ const writeMain = writer({
   }
 })
 
-const initMain = ({clicks=0}) => ({clicks})
-
-const updateMain = (state, msg) => {
-  if (msg.type === 'click') {
-    return [
-      {...state, clicks: state.clicks + 1},
-      null
-    ]
-  }
-  return [state, null]
-}
-
-const main = component({
-  init: initMain,
-  update: updateMain,
-  style: styleMain,
+const main = view({
+  css: cssMain,
   write: writeMain
 })
 
 customElements.define('my-main', main)
+
+const state = {
+  clicks: 0
+}
+
+const update = (state, msg) => {
+  if (msg.type === 'click') {
+    return change({...state, clicks: state.clicks + 1})
+  }
+  return change(state)
+}
+
+const mainStore = store({
+  state,
+  update
+})
+
+const mainView = el.create('my-main').done()
+
+connect(
+  mainStore,
+  mainView,
+)
+
+el.select('body').append(mainView)
