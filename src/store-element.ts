@@ -13,9 +13,6 @@ type Writing<Subject, State, Action> = (
 // side-effect with it.
 type Address<Action> = (action: Action) => void
 
-// A promise that always succeeds with either an action or undefined.
-type Task<Action> = Promise<Action|undefined>
-
 // An updating function takes a state and an action and produces a
 // change representing the next state and effects.
 type Updating<State, Action> = (
@@ -23,38 +20,57 @@ type Updating<State, Action> = (
   action: Action
 ) => Change<State, Action>
 
+// An effect is a collection of one or more promises for future actions.
+// Promises are "tasks" in the sense that they are always expected to succeed.
+// Failures should also be modeled as actions.
+export class Fx<Action> {
+  tasks: Array<Promise<Action>>
+
+  constructor(tasks: Array<Promise<Action>>) {
+    this.tasks = tasks
+  }
+
+  run(address: Address<Action>) {
+    for (const task of this.tasks) {
+      task.then(address)
+    }
+  }
+}
+
+// Task is an fx for a single task
+export const task = <Action>(task: Promise<Action>) => new Fx([task])
+
 // An effect that produces "just" an action
-export const just = async <Action>(action: Action) => action
+export const just = <Action>(action: Action) =>
+  new Fx([Promise.resolve(action)])
+
+// Batch an array of fx together creating a new fx.
+export const batchFx = <Action>(batch: Array<Fx<Action>>) =>
+  new Fx(batch.flatMap(fx => fx.tasks))
+
+// Map an fx with a function, returning a new fx.
+export const mapFx = <A, B>(
+  mapping: (a: A) => B,
+  fx: Fx<A>
+) => new Fx(fx.tasks.map(task => task.then(mapping)))
 
 // Represents a state change transaction.
 // A container for a state/fx pair
 export class Change<State, Action> {
   state: State
-  fx: Array<Task<Action>>
+  fx?: Fx<Action>
 
-  constructor(state: State, fx: Array<Task<Action>> = []) {
+  constructor(state: State, fx?: Fx<Action>) {
     this.state = state
     this.fx = fx
-  }
-
-  mergeTasks(fx: Array<Task<Action>>) {
-    return new Change(
-      this.state,
-      this.fx.concat(fx)
-    )
   }
 }
 
 // Create a new change, defaulting to no fx, if no fx are specified.
 export const change = <State, Action>(
   state: State,
-  task?: Task<Action>
-) => {
-  if (task) {
-    return new Change(state, [task])
-  }
-  return new Change(state)
-}
+  fx?: Fx<Action>
+) => new Change(state, fx)
 
 // An abstract interface for a reactive store
 interface StoreInterface<State, Action> {
@@ -87,16 +103,9 @@ export class Store<State, Action> implements StoreInterface<State, Action> {
       this.state = next.state
       this.render(next.state)
     }
-
-    for (const fx of next.fx) {
-      this.effect(fx)
+    if (next.fx) {
+      next.fx.run(this.send)
     }
-  }
-
-  // Run an effect, sending any resulting action to the store.
-  async effect(task: Task<Action>) {
-    let action = await task
-    this.send(action)
   }
 
   render(state: State) {}
@@ -117,12 +126,6 @@ export const forward = <Action, InnerAction>(
   tag: (value: InnerAction) => Action
 ) => (action: InnerAction) => send(tag(action))
 
-// Tag an fx, mapping tasks with some function.
-export const mapAsync = <InnerAction, Action>(
-  f: (action: InnerAction) => Action,
-  fx: Array<Task<InnerAction>>
-) => fx.map(async (task) => f(await task))
-
 interface CursorOptions<State, Action, InnerState, InnerAction> {
   update: Updating<InnerState, InnerAction>
   get: (state: State) => InnerState
@@ -136,7 +139,7 @@ export const cursor = <State, Action, InnerState, InnerAction>(
 ) => (state: State, action: InnerAction) => {
   const inner = update(get(state), action)
   const next = set(state, inner.state)
-  return new Change(next, mapAsync(tag, inner.fx))
+  return new Change(next, mapFx(tag, inner.fx))
 }
 
 // Batch a series of update actions
@@ -147,15 +150,13 @@ export const updateBatch = <State, Action>(
   actions: Array<Action>
 ) => {
   let curr = state
-  let fx: Array<Task<Action>> = []
+  let batchedFx: Array<Fx<Action>> = []
   for (let action of actions) {
     const next = update(curr, action)
     curr = next.state
-    for (const task of next.fx) {
-      fx.push(task)
-    }
+    batchedFx.push(next.fx)
   }
-  return new Change(curr, fx)
+  return change(curr, batchFx(batchedFx))
 }
 
 // Connect a store to a renderable element.
@@ -269,6 +270,15 @@ implements Renderable<State, Action>
   // Delegate. Set a send function on this property to
   // have it forward messages up to a parent component or store.
   address(action: Action) {}
+}
+
+/// Convenience factory for defining a stateless view element
+export const renderable = <State, Action>(
+  write: Writing<ShadowRoot, State, Action>
+) => {
+  class CustomRenderableElement extends RenderableElement<State, Action> {}
+  CustomRenderableElement.prototype.write = write
+  return CustomRenderableElement
 }
 
 // A view is a renderable that knows how to style itself.

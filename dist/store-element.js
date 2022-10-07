@@ -1,23 +1,34 @@
-// An effect that produces nothing
-export const nofx = async function* () { };
-// Wrap a promise in an fx
-export const fx = async function* (promise) {
-    yield await promise;
-};
+// An effect is a collection of one or more promises for future actions.
+// Promises are "tasks" in the sense that they are always expected to succeed.
+// Failures should also be modeled as actions.
+export class Fx {
+    constructor(tasks) {
+        this.tasks = tasks;
+    }
+    run(address) {
+        for (const task of this.tasks) {
+            task.then(address);
+        }
+    }
+}
+// Task is an fx for a single task
+export const task = (task) => new Fx([task]);
 // An effect that produces "just" an action
-export const just = async function* (action) {
-    yield action;
-};
+export const just = (action) => new Fx([Promise.resolve(action)]);
+// Batch an array of fx together creating a new fx.
+export const batchFx = (batch) => new Fx(batch.flatMap(fx => fx.tasks));
+// Map an fx with a function, returning a new fx.
+export const mapFx = (mapping, fx) => new Fx(fx.tasks.map(task => task.then(mapping)));
 // Represents a state change transaction.
 // A container for a state/fx pair
 export class Change {
-    constructor(state, fx = nofx()) {
+    constructor(state, fx) {
         this.state = state;
         this.fx = fx;
     }
 }
-// Create a new change, generating default `nofx` if no fx are specified.
-export const change = (state, fx = nofx()) => new Change(state, fx);
+// Create a new change, defaulting to no fx, if no fx are specified.
+export const change = (state, fx) => new Change(state, fx);
 // Store is a deterministic store for state, inspired loosely by
 // Elm's App Architecture pattern.
 export class Store {
@@ -33,14 +44,8 @@ export class Store {
             this.state = next.state;
             this.render(next.state);
         }
-        this.effect(next.fx);
-    }
-    // Run an effect, sending any resulting action to the store.
-    async effect(fx) {
-        for await (const action of fx) {
-            if (action) {
-                this.send(action);
-            }
+        if (next.fx) {
+            next.fx.run(this.send);
         }
     }
     render(state) { }
@@ -53,17 +58,23 @@ export const store = (options) => new Store(options);
 // We use this to map between component domains, when passing an address
 // down to a sub-component.
 export const forward = (send, tag) => (action) => send(tag(action));
-// Tag an fx, mapping its value to some new value.
-export const tagged = async function* (f, fx) {
-    for await (const value of fx) {
-        yield f(value);
-    }
-};
 // Create an update function for a sub-component
 export const cursor = ({ update, get, set, tag }) => (state, action) => {
     const inner = update(get(state), action);
     const next = set(state, inner.state);
-    return change(next, tagged(tag, inner.fx));
+    return new Change(next, mapFx(tag, inner.fx));
+};
+// Batch a series of update actions
+// Returns a Change containing the resulting state and batched fx.
+export const updateBatch = (update, state, actions) => {
+    let curr = state;
+    let batchedFx = [];
+    for (let action of actions) {
+        const next = update(curr, action);
+        curr = next.state;
+        batchedFx.push(next.fx);
+    }
+    return change(curr, batchFx(batchedFx));
 };
 // Connect a store to a renderable element.
 // - Invokes `renderable.render` with new store states
@@ -146,6 +157,13 @@ export class RenderableElement extends HTMLElement {
     // have it forward messages up to a parent component or store.
     address(action) { }
 }
+/// Convenience factory for defining a stateless view element
+export const renderable = (write) => {
+    class CustomRenderableElement extends RenderableElement {
+    }
+    CustomRenderableElement.prototype.write = write;
+    return CustomRenderableElement;
+};
 // A view is a renderable that knows how to style itself.
 export class ViewElement extends RenderableElement {
     constructor() {
